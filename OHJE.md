@@ -59,6 +59,13 @@ tallessa siltä varalta, että sama tehdään joskus uudestaan.
 Myöhemmät muutokset menevät perille komennolla `sh tyokalut/julkaise.sh`. Se ajaa
 testit ensin eikä julkaise punaisena.
 
+**Julkaisun jälkeen sivu näyttää vanhaa noin kymmenen minuuttia.** GitHubin
+jakeluverkko pitää sivusta kopiota, eikä käännöksen valmistuminen tyhjennä sitä.
+Käännöksen tilan näkee komennolla `gh api repos/<tunnus>/lista/pages/builds/latest
+--jq .status`, ja tuoreen version saa heti näkyviin lisäämällä osoitteeseen
+kyselyn, esimerkiksi `?t=1`. Tarrojen koodeihin ei tarvitse koskea: ne osoittavat
+osoitteeseen ilman kyselyä, ja kymmenen minuutin päästä sekin on tuore.
+
 ## Neljä osiota
 
 Koodi voi kantaa neljä osiota. Kirjoita vain ne joita tarvitset: tyhjä osio
