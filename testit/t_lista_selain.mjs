@@ -60,6 +60,9 @@ function b64u(str){
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function hash(otsikko, rivit){ return "#" + b64u(JSON.stringify({ v: 1, t: otsikko, i: rivit })); }
+/* v2 = neljä osiota (Jari 10.9.2026). Vanha v1 jää voimaan: jo tulostettu
+   tarra ei saa lakata toimimasta siksi, että generaattori sai uusia kenttiä. */
+function hash2(o){ return "#" + b64u(JSON.stringify(Object.assign({ v: 2 }, o))); }
 
 const LISTA_A = ["Vasara", "Jakoavain", "Mittanauha 5 m"];
 const LISTA_B = ["Rälläkkä", "Suojalasit"];
@@ -173,6 +176,100 @@ await t("tulostuksessa napit ja alaviite jäävät pois", async () => {
   on(r.ruutuNakyy, "rastiruudut katosivat tulosteesta");
 });
 
+console.log("--- neljä osiota ---");
+
+const TYO = OSOITE + "/docs/index.html" + hash2({
+  t: "Kattoluukun tiiviste",
+  i: ["Rälläkkä", "Mittanauha 5 m"],
+  osat: ["Ruuvit 4,2 × 25", "Tiiviste 60 mm"],
+  huom: ["Katto on liukas sateella.", "Virta pois ennen aloitusta."],
+  ohje: ["Katkaise virta.", "Irrota suojapelti.", "Vaihda tiiviste."]
+});
+const OSIOT_TYHJA = OSOITE + "/docs/index.html" + hash2({
+  t: "Vain kaksi", i: ["Vasara"], osat: [], huom: [], ohje: ["Lyö."]
+});
+const OSIOT = `(function(){
+  return Array.prototype.map.call(document.querySelectorAll('.osio'), function(o){
+    var ots = o.querySelector('.osio-otsikko');
+    return { otsikko: ots ? ots.textContent : '',
+             laskuri: (o.querySelector('.osio-laskuri') || {}).textContent || '',
+             ruutuja: o.querySelectorAll('input[type=checkbox]').length,
+             rivit: Array.prototype.map.call(o.querySelectorAll('li .txt, li'), function(e){ return e.textContent.trim(); }),
+             numeroitu: !!o.querySelector('ol'),
+             luokat: o.className };
+  });
+})()`;
+
+await t("neljä osiota piirtyy järjestyksessä huomiot, työkalut, varaosat, työohjeet", async () => {
+  await s.avaa(TYO);
+  const o = await s.arvioi(OSIOT);
+  on(o.length === 4, "osioita " + o.length);
+  const otsikot = o.map(x => x.otsikko.toLowerCase().replace(/[^a-zäö]/g, ""));
+  on(/huomio/.test(otsikot[0]), "1. osio ei ole huomiot: " + o[0].otsikko);
+  on(/kalu/.test(otsikot[1]), "2. osio ei ole työkalut: " + o[1].otsikko);
+  on(/osa/.test(otsikot[2]), "3. osio ei ole varaosat: " + o[2].otsikko);
+  on(/ohje/.test(otsikot[3]), "4. osio ei ole työohjeet: " + o[3].otsikko);
+  if (process.env.TL_KUVA) await s.kuva(process.env.TL_KUVA + "-osiot.png");
+});
+
+await t("rastit vain keräysosioissa; huomiot ja ohjeet luetaan", async () => {
+  const o = await s.arvioi(OSIOT);
+  on(o[0].ruutuja === 0, "huomioissa on rastiruutuja: " + o[0].ruutuja);
+  on(o[1].ruutuja === 2, "työkaluissa ruutuja " + o[1].ruutuja);
+  on(o[2].ruutuja === 2, "varaosissa ruutuja " + o[2].ruutuja);
+  on(o[3].ruutuja === 0, "ohjeissa on rastiruutuja: " + o[3].ruutuja);
+});
+
+await t("työohjeet numeroidaan itse, huomiot erottuvat varoituksena", async () => {
+  const o = await s.arvioi(OSIOT);
+  on(o[3].numeroitu, "ohjeet eivät ole numeroitu lista");
+  on(/huomio|varoitus/.test(o[0].luokat), "huomiolohkolta puuttuu oma luokka: " + o[0].luokat);
+  const vari = await s.arvioi(`(function(){
+    var h = document.querySelector('.osio.huomio'); if (!h) return "ei lohkoa";
+    var t = getComputedStyle(h);
+    return { tausta: t.backgroundColor, reuna: t.borderLeftWidth + " " + t.borderLeftColor };
+  })()`);
+  on(typeof vari === "object" && vari.reuna !== "0px", "varoituslaatikolla ei ole korostusta: " + JSON.stringify(vari));
+});
+
+await t("laskuri per osio ja yhteensä ylhäällä", async () => {
+  const o = await s.arvioi(OSIOT);
+  on(o[1].laskuri === "0 / 2", "työkalujen laskuri: " + o[1].laskuri);
+  on(o[2].laskuri === "0 / 2", "varaosien laskuri: " + o[2].laskuri);
+  on(o[0].laskuri === "" && o[3].laskuri === "", "luettavissa osioissa on laskuri");
+  const ylin = await s.arvioi(`(document.querySelector('.progress')||{}).textContent`);
+  on(ylin === "0 / 4 kerätty", "yhteislaskuri: " + ylin);
+});
+
+await t("RASTIT ERIKSEEN kummassakin keräysosiossa ja säilyvät latauksen yli", async () => {
+  await s.napautaValitsinta(".osio input[type=checkbox]", 1);   // työkaluista toinen
+  await s.napautaValitsinta(".osio input[type=checkbox]", 2);   // varaosista ensimmäinen
+  let ylin = await s.arvioi(`(document.querySelector('.progress')||{}).textContent`);
+  on(ylin === "2 / 4 kerätty", "yhteislaskuri rastien jälkeen: " + ylin);
+  await tuoreLataus(TYO);
+  const r = await s.arvioi(`Array.prototype.map.call(document.querySelectorAll('.osio input[type=checkbox]'), function(e){ return e.checked; }).join(',')`);
+  on(r === "false,true,true,false", "rastit latauksen jälkeen: " + r);
+  const o = await s.arvioi(OSIOT);
+  on(o[1].laskuri === "1 / 2" && o[2].laskuri === "1 / 2", "osiolaskurit: " + o[1].laskuri + " / " + o[2].laskuri);
+});
+
+await t("tyhjät osiot jäävät kokonaan pois", async () => {
+  await s.avaa(OSIOT_TYHJA);
+  const o = await s.arvioi(OSIOT);
+  on(o.length === 2, "osioita " + o.length + ": " + o.map(x => x.otsikko).join(", "));
+  on(/kalu/.test(o[0].otsikko.toLowerCase()) && /ohje/.test(o[1].otsikko.toLowerCase()),
+     "väärät osiot: " + o.map(x => x.otsikko).join(", "));
+});
+
+await t("VANHA KOODI toimii yhä eikä näytä turhaa osio-otsikkoa", async () => {
+  await s.avaa(A);
+  const o = await s.arvioi(OSIOT);
+  const r = await s.arvioi(TILA);
+  on(r.rivit.join("|") === LISTA_A.join("|"), "vanha lista ei piirry: " + r.rivit.join("|"));
+  on(o.length === 0 || o.every(x => !x.otsikko), "yhden listan koodi sai turhan osio-otsikon");
+  on(r.laskuri === "0 / 3 kerätty", "vanhan koodin laskuri: " + r.laskuri);
+});
+
 console.log("--- generaattori ---");
 
 const GEN = OSOITE + "/tyokalut/generaattori.html";
@@ -266,6 +363,49 @@ await t("KETJU: generaattorin koodi purkautuu sivulla samaksi listaksi", async (
   on(r.otsikko === "Katolle", "otsikko ketjun päässä: " + r.otsikko);
   on(r.rivit.join("|") === "Turvavaljaat|Akkuporakone + terät|Ruuvit 4,2 × 25",
      "rivit ketjun päässä: " + r.rivit.join("|"));
+});
+
+await t("GENERAATTORI: varaosat, huomioitavaa ja työohjeet päätyvät koodiin", async () => {
+  await s.avaa(GEN);
+  const sisalto = await s.arvioi(`(function(){
+    document.getElementById('viewerUrl').value = ${JSON.stringify(OSOITE + "/docs/index.html")};
+    document.getElementById('title').value = "Kattoluukku";
+    document.getElementById('items').value = "Rälläkkä";
+    document.getElementById('parts').value = ["Tiiviste 60 mm", "Ruuvit 4,2 × 25"].join(String.fromCharCode(10));
+    document.getElementById('notes').value = "Katto liukas sateella.";
+    document.getElementById('steps').value = ["Katkaise virta.", "Irrota suojapelti."].join(String.fromCharCode(10));
+    ['viewerUrl','title','items','parts','notes','steps'].forEach(function(id){
+      document.getElementById(id).dispatchEvent(new Event('input', {bubbles:true}));
+    });
+    return qrContent();
+  })()`);
+  await s.nuku(400);
+  await s.avaa(sisalto);
+  const o = await s.arvioi(OSIOT);
+  on(o.length === 4, "ketjun päässä osioita " + o.length);
+  on(o[2].rivit.join("|").indexOf("Tiiviste 60 mm") >= 0, "varaosat eivät tulleet läpi: " + o[2].rivit.join("|"));
+  on(o[0].rivit.join(" ").indexOf("liukas") >= 0, "huomiot eivät tulleet läpi: " + o[0].rivit.join(" "));
+  on(o[3].rivit.join(" ").indexOf("suojapelti") >= 0, "ohjeet eivät tulleet läpi: " + o[3].rivit.join(" "));
+});
+
+await t("tyhjä osio ei kasvata koodia", async () => {
+  await s.avaa(GEN);
+  const koot = await s.arvioi(`(function(){
+    function aseta(o){
+      Object.keys(o).forEach(function(id){
+        document.getElementById(id).value = o[id];
+        document.getElementById(id).dispatchEvent(new Event('input', {bubbles:true}));
+      });
+    }
+    document.getElementById('viewerUrl').value = "https://x.io/l/";
+    aseta({ title:"T", items:"Vasara", parts:"", notes:"", steps:"" });
+    var vain = qrContent().length;
+    aseta({ parts:"Ruuvi" });
+    var kanssa = qrContent().length;
+    return { vain: vain, kanssa: kanssa };
+  })()`);
+  on(koot.kanssa > koot.vain, "varaosien lisäys ei näy koodissa lainkaan");
+  on(koot.vain < 120, "tyhjät osiot kasvattavat koodia turhaan: " + koot.vain + " merkkiä");
 });
 
 await t("tekstitila ei sisällä osoitetta lainkaan", async () => {

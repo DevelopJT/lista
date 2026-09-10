@@ -102,6 +102,24 @@ t("rikkinäinen koodi ei heitä ulos vaan tunnistetaan", function(){
   on(heitti, "roskadata meni läpi kelvollisena");
 });
 
+console.log("--- neljä osiota (v2) ---");
+
+t("v2-koodi kantaa kaikki neljä osiota ehjinä", function(){
+  const tyo = { v: 2, t: "Kattoluukku", i: ["Rälläkkä"], osat: ["Tiiviste 60 mm"],
+                huom: ["Katto liukas sateella."], ohje: ["Katkaise virta.", "Irrota pelti."] };
+  const p = JSON.parse(sivu.b64uDecode(gen.b64u(JSON.stringify(tyo))));
+  on(p.v === 2, "versio: " + p.v);
+  on(p.osat.join("|") === tyo.osat.join("|"), "varaosat: " + p.osat);
+  on(p.huom.join("|") === tyo.huom.join("|"), "huomiot: " + p.huom);
+  on(p.ohje.join("|") === tyo.ohje.join("|"), "ohjeet: " + p.ohje);
+});
+
+t("osioiden nimet ovat lyhyitä: koodiin ei kirjoiteta pitkiä avaimia", function(){
+  // Jokainen avain toistuu koodissa kerran ja syö tilaa listan sisällöltä.
+  const koodi = JSON.stringify({ v: 2, t: "x", i: ["a"], osat: ["b"], huom: ["c"], ohje: ["d"] });
+  on(koodi.length < 70, "tunnisteet vievät liikaa tilaa: " + koodi.length + " merkkiä");
+});
+
 console.log("--- listan tunniste (rastien avain) ---");
 
 t("sama lista antaa saman tunnisteen, eri lista eri tunnisteen", function(){

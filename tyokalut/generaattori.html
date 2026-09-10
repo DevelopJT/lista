@@ -167,7 +167,7 @@ code{background:#E7E9E3;border-radius:2px;padding:1px 5px;font-size:.92em}
 <body>
 <div class="app"><div class="wrap">
   <h1>Työkalulistan QR-generaattori</h1>
-  <p class="lede">Kirjoita lista, tulosta tarra. Kun koodin lukee puhelimella, lista aukeaa ruudulle – kaikki tieto kulkee koodissa itsessään, eikä listaa tallenneta minnekään.</p>
+  <p class="lede">Kirjoita työkalut, varaosat, huomiot ja ohjeet. Tulosta tarra. Kun koodin lukee puhelimella, lista aukeaa ruudulle – kaikki tieto kulkee koodissa itsessään, eikä listaa tallenneta minnekään.</p>
 
   <div class="field">
     <label for="title">Listan otsikko</label>
@@ -186,6 +186,23 @@ Puukko
 Kynä ja merkkausliitu
 Akkuporakone + terät
 Kuulosuojaimet</textarea>
+  </div>
+
+  <div class="field">
+    <label for="parts">Varaosat, yksi per rivi</label>
+    <textarea id="parts" placeholder="Tiiviste 60 mm&#10;Ruuvit 4,2 × 25"></textarea>
+  </div>
+
+  <div class="field">
+    <label for="notes">Huomioitavaa</label>
+    <textarea id="notes" placeholder="Katto on liukas sateella.&#10;Virta pois ennen aloitusta."></textarea>
+    <p class="hint">Näkyy listan yläreunassa varoituslaatikkona, ennen kerättäviä.</p>
+  </div>
+
+  <div class="field">
+    <label for="steps">Työohjeet, yksi askel per rivi</label>
+    <textarea id="steps" placeholder="Katkaise virta.&#10;Irrota suojapelti.&#10;Vaihda tiiviste."></textarea>
+    <p class="hint">Sivu numeroi askeleet itse, joten väliin lisätty askel ei sotke numerointia.</p>
   </div>
 
   <div class="field">
@@ -269,6 +286,7 @@ const $ = id => document.getElementById(id);
 const el = {
   title: $('title'), items: $('items'), viewerUrl: $('viewerUrl'),
   urlfield: $('urlfield'), urlhint: $('urlhint'),
+  parts: $('parts'), notes: $('notes'), steps: $('steps'),
   labelnote: $('labelnote'), labelnotePreview: $('labelnotePreview'), printNote: $('printNote'),
   qr: $('qr'), placeholder: $('placeholder'), labeltitle: $('labeltitle'),
   meta: $('meta'), sizewarn: $('sizewarn'),
@@ -284,20 +302,35 @@ function b64u(str){
   return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
 
-function getList(){
-  const t = el.title.value.trim();
-  const i = el.items.value.split('\n').map(s => s.trim()).filter(Boolean);
-  return { t, i };
+/* Neljä osiota (Jari 10.9.2026). Tyhjä osio jätetään pois koko koodista:
+   jokainen tavu on pois listan tilasta, ja tyhjä otsikko olisi kohinaa. */
+const OSIOAVAIMET = ['i', 'osat', 'huom', 'ohje'];
+function rivit(kentta){
+  return kentta.value.split('\n').map(s => s.trim()).filter(Boolean);
 }
+function getList(){
+  return { t: el.title.value.trim(), i: rivit(el.items), osat: rivit(el.parts),
+           huom: rivit(el.notes), ohje: rivit(el.steps) };
+}
+function tyhja(d){ return !d.t && OSIOAVAIMET.every(k => d[k].length === 0); }
 
 function mode(){ return document.querySelector('input[name=mode]:checked').value; }
 
-function payload(){ const d = getList(); return b64u(JSON.stringify({ v:1, t:d.t, i:d.i })); }
+function payload(){
+  const d = getList(), o = { v: 2, t: d.t };
+  OSIOAVAIMET.forEach(k => { if (d[k].length) o[k] = d[k]; });
+  return b64u(JSON.stringify(o));
+}
 
 function qrContent(){
   if (mode() === 'text'){
-    const d = getList();
-    return (d.t ? d.t + '\n\n' : '') + d.i.map(s => '- ' + s).join('\n');
+    const d = getList(), osat = [];
+    if (d.t) osat.push(d.t);
+    if (d.huom.length) osat.push('HUOMIOITAVAA\n' + d.huom.map(s => '! ' + s).join('\n'));
+    if (d.i.length) osat.push('TYÖKALUT\n' + d.i.map(s => '- ' + s).join('\n'));
+    if (d.osat.length) osat.push('VARAOSAT\n' + d.osat.map(s => '- ' + s).join('\n'));
+    if (d.ohje.length) osat.push('TYÖOHJEET\n' + d.ohje.map((s, n) => (n + 1) + '. ' + s).join('\n'));
+    return osat.join('\n\n');
   }
   return el.viewerUrl.value.trim().replace(/#.*$/,'') + '#' + payload();
 }
@@ -372,8 +405,8 @@ function update(){
     }
   }
 
-  if (!d.t && d.i.length === 0){
-    setOutput('empty', '<p>Kirjoita otsikko ja työkalut, niin koodi ilmestyy tähän.</p>');
+  if (tyhja(d)){
+    setOutput('empty', '<p>Kirjoita otsikko ja ainakin yksi osio, niin koodi ilmestyy tähän.</p>');
     el.meta.textContent = ''; el.sizewarn.hidden = true;
     return;
   }
@@ -399,6 +432,9 @@ function queue(){ clearTimeout(timer); timer = setTimeout(update, 150); }
 ['input','change'].forEach(ev => {
   el.title.addEventListener(ev, queue);
   el.items.addEventListener(ev, queue);
+  el.parts.addEventListener(ev, queue);
+  el.notes.addEventListener(ev, queue);
+  el.steps.addEventListener(ev, queue);
   el.viewerUrl.addEventListener(ev, queue);
   el.labelnote.addEventListener(ev, queue);
 });

@@ -79,6 +79,37 @@ input[type=checkbox]:checked::after{
 li .txt{overflow-wrap:anywhere}
 li input:checked ~ .txt{color:var(--steel);text-decoration:line-through}
 
+/* OSIOT (Jari 10.9.2026): työkalut, varaosat, huomioitavaa, työohjeet.
+   Kerättävät osiot saavat rastiruudut, luettavat eivät. Yhden listan koodi
+   piirtyy ilman osio-otsikkoa kuten ennenkin — turha otsikko yhden listan
+   yllä olisi pelkkää kohinaa. */
+.osio{border-top:1px solid var(--line);padding:2px 0 6px}
+.osio:first-of-type{border-top:none}
+.osio-otsikko{
+  display:flex;align-items:baseline;gap:10px;
+  font-family:var(--font-display);font-weight:700;font-size:20px;
+  letter-spacing:.02em;padding:12px 18px 2px;
+}
+.osio-laskuri{
+  margin-left:auto;font-family:var(--font-ui);font-weight:400;font-size:15px;
+  color:var(--steel);font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+/* Huomioitavaa: varoituksen kuvakieli tarran raidasta. Vasen palkki näkyy myös
+   mustavalkoisena tulosteena, jossa taustaväri katoaa. */
+.osio.huomio{
+  border-top:none;margin:10px 12px;padding:2px 0 4px;
+  background:#FFF8E1;border-left:8px solid var(--safety);border-radius:0 3px 3px 0;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact;
+}
+.osio.huomio .osio-otsikko{text-transform:uppercase;font-size:17px;letter-spacing:.08em;padding:10px 14px 0}
+.osio.huomio ul{list-style:none;padding:0 14px 10px;margin:0}
+.osio.huomio li{border-top:none;padding:4px 0;font-weight:600}
+/* Työohjeet: numerointi tulee selaimelta, ei kirjoittajalta. Väliin lisätty
+   askel numeroituu itsestään oikein. */
+.osio.ohjeet ol{margin:0;padding:2px 18px 8px 40px}
+.osio.ohjeet li{border-top:none;padding:5px 0;margin:0}
+.osio.ohjeet li::marker{font-weight:700;color:var(--steel)}
+
 .actions{display:flex;flex-wrap:wrap;gap:10px;padding:16px 18px 18px}
 button{
   font:inherit;font-weight:600;
@@ -103,6 +134,8 @@ code{background:#E7E9E3;border-radius:2px;padding:1px 5px;font-size:.92em}
   .stripe{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .actions,footer{display:none}
   li label{padding:8px 12px}
+  .osio.huomio{background:#F2F2F2}
+  .osio-otsikko{padding-top:10px}
   input[type=checkbox]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 </style>
@@ -190,6 +223,23 @@ function muistiSiivoa(){
   } catch (e) {}
 }
 
+/* Osioiden kiinteä järjestys ja laji. Huomiot ensin: varoitus luetaan ennen
+   kuin mitään aloitetaan. Avaimet ovat lyhyitä, koska jokainen merkki on
+   pois listan tilasta QR-koodissa. Työkalut ovat avaimella "i" siksi, että
+   ensimmäinen versio käytti sitä eikä jo tulostettu tarra saa lakata
+   toimimasta uuden kentän takia. */
+var OSIOT = [
+  { avain: "huom", otsikko: "Huomioitavaa", laji: "huomio" },
+  { avain: "i",    otsikko: "Työkalut",     laji: "keraus" },
+  { avain: "osat", otsikko: "Varaosat",     laji: "keraus" },
+  { avain: "ohje", otsikko: "Työohjeet",    laji: "ohjeet" }
+];
+function osionRivit(data, avain){
+  var a = data[avain];
+  if (!Array.isArray(a)) return [];
+  return a.filter(function(x){ return typeof x === "string" && x.trim(); });
+}
+
 function h(tag, cls, text){
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -217,7 +267,8 @@ function render(){
   let data;
   try {
     data = JSON.parse(b64uDecode(koodi));
-    if (!data || !Array.isArray(data.i)) throw 0;
+    // Vartija ei enää vaadi työkalulistaa: koodi voi kantaa pelkät ohjeet.
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw 0;
   } catch (e) {
     return showNotice();
   }
@@ -232,26 +283,58 @@ function render(){
   head.appendChild(prog);
   content.appendChild(head);
 
-  const ul = h('ul');
+  const osiot = OSIOT.map(o => Object.assign({ rivit: osionRivit(data, o.avain) }, o))
+                     .filter(o => o.rivit.length);
+  if (!osiot.length) return showNotice();
+
+  /* Yksi pelkkä työkalulista piirtyy ilman osiokehystä — täsmälleen kuten
+     ennen osioita. Muut yhdistelmät saavat otsikot. */
+  const paljas = osiot.length === 1 && osiot[0].avain === "i";
   const boxes = [];
   const muistetut = muistiLue(tunnus);
-  data.i.forEach((item, nro) => {
-    const li = h('li');
-    const label = h('label');
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = muistetut.indexOf(nro) >= 0;
-    boxes.push(cb);
-    label.appendChild(cb);
-    label.appendChild(h('span','txt', item));
-    li.appendChild(label);
-    ul.appendChild(li);
+
+  osiot.forEach(o => {
+    let sailio = content;
+    if (!paljas){
+      sailio = h('section', 'osio' + (o.laji === 'keraus' ? '' : ' ' + o.laji));
+      const ots = h('div', 'osio-otsikko', o.otsikko);
+      if (o.laji === 'keraus'){ o.laskuri = h('span', 'osio-laskuri'); ots.appendChild(o.laskuri); }
+      sailio.appendChild(ots);
+      content.appendChild(sailio);
+    }
+    if (o.laji === 'keraus'){
+      const ul = h('ul');
+      o.ruudut = [];
+      o.rivit.forEach(item => {
+        const li = h('li');
+        const label = h('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        // Muistin avain on rastitettavien juokseva numero yli osiorajojen.
+        cb.checked = muistetut.indexOf(boxes.length) >= 0;
+        boxes.push(cb);
+        o.ruudut.push(cb);
+        label.appendChild(cb);
+        label.appendChild(h('span','txt', item));
+        li.appendChild(label);
+        ul.appendChild(li);
+      });
+      sailio.appendChild(ul);
+    } else {
+      const lista = h(o.laji === 'ohjeet' ? 'ol' : 'ul');
+      o.rivit.forEach(rivi => lista.appendChild(h('li', null, rivi)));
+      sailio.appendChild(lista);
+    }
   });
-  content.appendChild(ul);
 
   function updateProgress(){
     const done = boxes.filter(b => b.checked).length;
     prog.textContent = done + ' / ' + boxes.length + ' kerätty';
+    prog.hidden = !boxes.length;          // pelkät ohjeet: ei kerättävää, ei laskuria
+    osiot.forEach(o => {
+      if (!o.laskuri) return;
+      o.laskuri.textContent = o.ruudut.filter(b => b.checked).length + ' / ' + o.ruudut.length;
+    });
   }
   function tallenna(){
     muistiKirjoita(tunnus, boxes.reduce(function(ulos, b, nro){

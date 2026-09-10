@@ -41,11 +41,13 @@ fi
 echo "--- git ---"
 git add -A
 if git diff --cached --quiet; then
-  echo "Ei muutoksia. Sivusto on jo ajan tasalla."
+  echo "Ei uusia muutoksia työpöydällä."
 else
   git commit -m "${1:-Työkalulistan päivitys}"
-  git push
 fi
+# Työntö AINA, myös ilman uutta committia: valmis mutta työntämätön commit
+# jäisi muuten koneelle, ja sivusto näyttäisi vanhaa ilman että mikään kertoo.
+git push
 
 # 4) Osoite. Johdetaan etävarastosta, jotta se on aina se oikea eikä muistinvarainen.
 eta=$(git remote get-url origin 2>/dev/null || true)
