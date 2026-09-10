@@ -152,10 +152,19 @@ t("generaattoria ei julkaista", function(){
   on(gl.length > 10000, "generaattori näyttää tyhjältä");
 });
 
-t("Tailscale-osoitetta ei ole missään: työkumppanit eivät ole siinä verkossa", function(){
+t("YKSITYISVERKON osoitetta ei ole missään: työkumppanit eivät ole siinä verkossa", function(){
+  /* Etsitään osoitteen MUOTO eikä omaa konenimeä. Kaksi syytä: sääntö kattaa
+     kaikki yksityisverkon osoitteet eikä vain sitä yhtä, ja tämä varasto on
+     JULKINEN — oma tailnet- ja konenimi eivät kuulu julkiseen lähdekoodiin
+     edes testin hakuehtona. */
+  const KIELLETYT = [/\bts\.net\b/i, /\.local\b/i, /\b10\.\d+\.\d+\.\d+/,
+                     /\b192\.168\.\d+\.\d+/, /\b100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./];
   ["docs/index.html", "docs/sw.js", "tyokalut/generaattori.html"].forEach(function(f){
     const s = fs.readFileSync(path.join(JUURI, f), "utf8");
-    on(s.indexOf("esimerkki") < 0 && s.indexOf("palvelin") < 0, f + " viittaa Pi:hin");
+    KIELLETYT.forEach(function(re){
+      const osuma = s.match(re);
+      on(!osuma, f + " viittaa yksityisverkkoon: " + (osuma && osuma[0]));
+    });
   });
 });
 

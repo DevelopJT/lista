@@ -274,16 +274,18 @@ console.log("--- generaattori ---");
 
 const GEN = OSOITE + "/tyokalut/generaattori.html";
 
-await t("generaattori ei tarjoa Tailscale-osoitetta oletuksena", async () => {
+await t("generaattori ei tarjoa yksityisverkon osoitetta oletuksena", async () => {
+  /* Osoitteen MUOTO eikä oma konenimi: tämä varasto on julkinen. */
   await s.avaa(GEN);
   await s.arvioi(`localStorage.clear()`);
   await tuoreLataus(GEN);
   const r = await s.arvioi(`(function(){
-    var k = document.getElementById('viewerUrl');
-    return { arvo: k.value, vihje: k.placeholder, lahde: document.documentElement.outerHTML.indexOf('esimerkki') };
+    var k = document.getElementById('viewerUrl'), lahde = document.documentElement.outerHTML;
+    return { arvo: k.value, vihje: k.placeholder,
+             yksityinen: ['ts.net', '.local', '192.168.', '10.0.'].filter(function(x){ return lahde.indexOf(x) >= 0; }).join(',') };
   })()`);
-  on(r.arvo.indexOf("esimerkki") < 0, "oletusosoite vie yhä Pi:lle: " + r.arvo);
-  on(r.lahde < 0, "Tailscale-osoite on yhä lähdekoodissa");
+  on(r.arvo === "", "osoitekentässä on oletusarvo: " + r.arvo);
+  on(r.yksityinen === "", "yksityisverkon osoite on yhä lähdekoodissa: " + r.yksityinen);
   on(/github\.io|https:\/\//.test(r.vihje), "vihjeteksti ei kerro osoitteen muotoa: " + r.vihje);
 });
 
