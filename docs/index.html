@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Työkalulista</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+:root{
+  --paper:#F2F3EF;
+  --card:#FFFFFF;
+  --ink:#1A1C1F;
+  --steel:#575D64;
+  --line:#DDDFD9;
+  --safety:#FFC61A;
+  --font-ui:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-display:"Avenir Next Condensed","Roboto Condensed","Arial Narrow","Liberation Sans Narrow",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:17px;
+  line-height:1.5;
+}
+.wrap{max-width:560px;margin:0 auto;padding:20px 14px 40px}
+.card{
+  background:var(--card);
+  border:2px solid var(--ink);
+  border-radius:3px;
+  overflow:hidden;
+}
+.stripe{
+  height:12px;
+  background:repeating-linear-gradient(-45deg,var(--ink) 0 12px,var(--safety) 12px 24px);
+}
+header{padding:18px 18px 10px}
+h1{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:clamp(28px,7vw,38px);
+  line-height:1.05;
+  margin:0;
+  overflow-wrap:anywhere;
+}
+.progress{color:var(--steel);font-variant-numeric:tabular-nums;margin:6px 0 0;font-size:15px}
+
+ul{list-style:none;margin:0;padding:0 6px}
+li{border-top:1px solid var(--line)}
+li label{
+  display:flex;
+  gap:14px;
+  align-items:center;
+  padding:12px;
+  cursor:pointer;
+}
+input[type=checkbox]{
+  appearance:none;-webkit-appearance:none;
+  width:28px;height:28px;flex:0 0 28px;
+  border:2px solid var(--ink);
+  border-radius:3px;
+  background:var(--card);
+  display:grid;place-content:center;
+  cursor:pointer;
+  margin:0;
+}
+input[type=checkbox]:checked{background:var(--ink)}
+input[type=checkbox]:checked::after{
+  content:"";
+  width:7px;height:13px;
+  border:solid var(--card);
+  border-width:0 3px 3px 0;
+  transform:rotate(45deg) translate(-1px,-1px);
+}
+:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+li .txt{overflow-wrap:anywhere}
+li input:checked ~ .txt{color:var(--steel);text-decoration:line-through}
+
+.actions{display:flex;flex-wrap:wrap;gap:10px;padding:16px 18px 18px}
+button{
+  font:inherit;font-weight:600;
+  border-radius:3px;
+  padding:10px 16px;
+  cursor:pointer;
+  border:2px solid var(--ink);
+}
+.primary{background:var(--ink);color:var(--card)}
+.secondary{background:transparent;color:var(--ink)}
+footer{color:var(--steel);font-size:14px;margin:14px 4px 0;max-width:52ch}
+
+.notice{padding:22px 18px 26px;max-width:56ch}
+.notice h1{font-size:30px;margin-bottom:8px}
+.notice p{margin:10px 0}
+code{background:#E7E9E3;border-radius:2px;padding:1px 5px;font-size:.92em}
+
+@media print{
+  body{background:#fff;font-size:12pt}
+  .wrap{max-width:none;padding:0}
+  .card{border-color:#000}
+  .stripe{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .actions,footer{display:none}
+  li label{padding:8px 12px}
+  input[type=checkbox]{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="stripe"></div>
+    <div id="content"></div>
+  </div>
+  <footer id="foot" hidden>Lista on tallessa vain QR-koodissa – palvelimelle ei lähetetä mitään. Rastit jäävät muistiin tähän puhelimeen. <span id="swnote"></span></footer>
+</div>
+
+<script>
+"use strict";
+const content = document.getElementById('content');
+const foot = document.getElementById('foot');
+
+function b64uDecode(s){
+  s = s.replace(/-/g,'+').replace(/_/g,'/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+/* ---------- rastit puhelimen muistiin ----------
+   Keruu keskeytyy työmaalla itsestään: puhelin menee taskuun, ruutu lukkiutuu,
+   joku soittaa. Ilman muistia jokainen avaus alkaisi alusta juuri silloin kun
+   puolet on jo kerätty.
+
+   Avain johdetaan listan SISÄLLÖSTÄ eikä otsikosta. Kaksi laatikkoa voi olla
+   nimeltään "Perustyökalut", ja rivin lisääminen tekee listasta eri listan,
+   jota vanhat rastit eivät koske. Muisti on tämän puhelimen oma: kaksi
+   kerääjää samalla tarralla eivät näe toistensa rasteja, mikä on tarkoitus.
+
+   Jokainen kosketus muistiin on try/catchin sisällä. Yksityinen ikkuna ja
+   evästeet estävä selain heittävät jo pelkästä localStorage-viittauksesta,
+   eikä listan pidä kadota ruudulta sen takia. */
+var MUISTI_ETULIITE = "tyokalulista:";
+var MUISTI_KATTO = 30;
+
+function listaTunnus(koodi){
+  // FNV-1a 32 bittiä: ei salausta vaan lyhyt vakaa nimi samalle sisällölle.
+  var h = 0x811c9dc5;
+  for (var i = 0; i < koodi.length; i++){
+    h ^= koodi.charCodeAt(i);
+    h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0;
+  }
+  return h.toString(36);
+}
+function muistiLue(tunnus){
+  try {
+    var raaka = localStorage.getItem(MUISTI_ETULIITE + tunnus);
+    if (!raaka) return [];
+    var o = JSON.parse(raaka);
+    return Array.isArray(o.r) ? o.r : [];
+  } catch (e) { return []; }
+}
+function muistiKirjoita(tunnus, rastit){
+  try {
+    localStorage.setItem(MUISTI_ETULIITE + tunnus, JSON.stringify({ r: rastit, p: Date.now() }));
+    muistiSiivoa();
+  } catch (e) {}
+}
+function muistiPoista(tunnus){
+  try { localStorage.removeItem(MUISTI_ETULIITE + tunnus); } catch (e) {}
+}
+/* Vanhimmat pois kun listoja on kertynyt katon yli: tarroja syntyy vuodessa
+   kymmeniä, eikä puhelimen muisti ole loputon. */
+function muistiSiivoa(){
+  try {
+    var avaimet = [];
+    for (var i = 0; i < localStorage.length; i++){
+      var k = localStorage.key(i);
+      if (!k || k.indexOf(MUISTI_ETULIITE) !== 0) continue;
+      var p = 0;
+      try { p = JSON.parse(localStorage.getItem(k)).p || 0; } catch (e) {}
+      avaimet.push({ k: k, p: p });
+    }
+    if (avaimet.length <= MUISTI_KATTO) return;
+    avaimet.sort(function(a, b){ return a.p - b.p; });
+    for (var j = 0; j < avaimet.length - MUISTI_KATTO; j++) localStorage.removeItem(avaimet[j].k);
+  } catch (e) {}
+}
+
+function h(tag, cls, text){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function showNotice(){
+  content.innerHTML = '';
+  const box = h('div','notice');
+  box.appendChild(h('h1', null, 'Ei listaa näytettäväksi'));
+  const p1 = h('p', null, 'Tämä sivu näyttää työkalulistan, joka kulkee kokonaisuudessaan QR-koodin sisällä – osoitteen #-merkin jälkeisessä osassa.');
+  const p2 = h('p', null, 'Avaa sivu skannaamalla generaattorilla tehty QR-koodi tai sen esikatselulinkistä, niin lista piirtyy tähän.');
+  box.appendChild(p1); box.appendChild(p2);
+  content.appendChild(box);
+  foot.hidden = true;
+}
+
+function render(){
+  const hash = location.hash.slice(1);
+  if (!hash) return showNotice();
+
+  const koodi = decodeURIComponent(hash);
+  const tunnus = listaTunnus(koodi);
+  let data;
+  try {
+    data = JSON.parse(b64uDecode(koodi));
+    if (!data || !Array.isArray(data.i)) throw 0;
+  } catch (e) {
+    return showNotice();
+  }
+
+  const title = (data.t || 'Työkalulista');
+  document.title = title;
+  content.innerHTML = '';
+
+  const head = h('header');
+  head.appendChild(h('h1', null, title));
+  const prog = h('p','progress');
+  head.appendChild(prog);
+  content.appendChild(head);
+
+  const ul = h('ul');
+  const boxes = [];
+  const muistetut = muistiLue(tunnus);
+  data.i.forEach((item, nro) => {
+    const li = h('li');
+    const label = h('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = muistetut.indexOf(nro) >= 0;
+    boxes.push(cb);
+    label.appendChild(cb);
+    label.appendChild(h('span','txt', item));
+    li.appendChild(label);
+    ul.appendChild(li);
+  });
+  content.appendChild(ul);
+
+  function updateProgress(){
+    const done = boxes.filter(b => b.checked).length;
+    prog.textContent = done + ' / ' + boxes.length + ' kerätty';
+  }
+  function tallenna(){
+    muistiKirjoita(tunnus, boxes.reduce(function(ulos, b, nro){
+      if (b.checked) ulos.push(nro);
+      return ulos;
+    }, []));
+  }
+  boxes.forEach(b => b.addEventListener('change', () => { updateProgress(); tallenna(); }));
+  updateProgress();
+
+  const actions = h('div','actions');
+  const btnPrint = h('button','primary','Tulosta lista');
+  btnPrint.addEventListener('click', () => window.print());
+  const btnClear = h('button','secondary','Tyhjennä valinnat');
+  btnClear.addEventListener('click', () => {
+    boxes.forEach(b => b.checked = false);
+    updateProgress();
+    muistiPoista(tunnus);          // myös muistista, muuten rastit palaisivat seuraavassa avauksessa
+  });
+  actions.appendChild(btnPrint);
+  actions.appendChild(btnClear);
+  content.appendChild(actions);
+
+  foot.hidden = false;
+}
+
+window.addEventListener('hashchange', render);
+render();
+
+if ('serviceWorker' in navigator &&
+    (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  navigator.serviceWorker.register('./sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => {
+      const n = document.getElementById('swnote');
+      if (n) n.textContent = 'Sivu on tallentunut puhelimeen ja aukeaa jatkossa ilman verkkoyhteyttäkin.';
+    })
+    .catch(() => {});
+}
+</script>
+</body>
+</html>
